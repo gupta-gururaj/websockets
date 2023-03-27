@@ -1,4 +1,4 @@
-Install Browser WebSocket Client chrome extension to test 
+Install `Browser WebSocket Client` chrome extension to test 
 
 To run the go program
 1. Go inside CMD
