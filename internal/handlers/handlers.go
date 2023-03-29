@@ -1,24 +1,19 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"sort"
 
-	"github.com/CloudyKit/jet/v6"
 	"github.com/gorilla/websocket"
+	nats "github.com/nats-io/nats.go"
 )
 
 var wsChan = make(chan WsPayload)
 
 var clients = make(map[WebSocketConnection]string)
-
-// views is the jet view set
-var views = jet.NewSet(
-	jet.NewOSFileSystemLoader("./html"),
-	jet.InDevelopmentMode(),
-)
 
 // upgradeConnection is the websocket upgrader from gorilla/websockets
 var upgradeConnection = websocket.Upgrader{
@@ -31,20 +26,25 @@ type WebSocketConnection struct {
 	*websocket.Conn
 }
 
+type App struct {
+	Nc *nats.Conn
+	Js nats.JetStreamContext
+}
+
 // WsJsonResponse defines the response sent back from websocket
 type WsJsonResponse struct {
-	Action         string   `json:"action"`
+	Event          string   `json:"event"`
 	Message        string   `json:"message"`
-	MessageType    string   `json:"message_type"`
 	ConnectedUsers []string `json:"connected_users"`
 }
 
 // WsPayload defines the websocket request from the client
 type WsPayload struct {
-	Action   string              `json:"action"`
-	Username string              `json:"username"`
-	Message  string              `json:"message"`
+	Event    string              `json:"event"`
+	Uid      string              `json:"uid"`
+	Token    string              `json:"token"`
 	Conn     WebSocketConnection `json:"-"`
+	RoomName string              `json:"roomName"`
 }
 
 // WsEndpoint upgrades connection to websocket
@@ -90,17 +90,26 @@ func ListenForWs(conn *WebSocketConnection) {
 	}
 }
 
-func ListenToWsChannel() {
+func ListenToWsChannel(app *App) {
 	var response WsJsonResponse
 
 	for {
 		e := <-wsChan
-		clients[e.Conn] = e.Username
+		clients[e.Conn] = e.Uid
 		users := getUserList()
-		response.Action = "list_users"
+		response.Event = e.Event
 		response.ConnectedUsers = users
-		fmt.Println("Response", response)
 		broadcastToAll(response)
+
+		byteData, err := json.Marshal(response)
+		if err != nil {
+			fmt.Println("error in Marshaling", err)
+		}
+
+		_, err = app.Js.Publish("ws_sub1", byteData)
+		if err != nil {
+			fmt.Println("Error in publishing data", err)
+		}
 	}
 }
 
